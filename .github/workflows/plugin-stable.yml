@@ -1,0 +1,107 @@
+name: Plugin Stable
+
+on:
+  push:
+    branches: [stable]
+    tags: ['v*-stable.*']
+  pull_request:
+    branches: [stable]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.23.2'
+          cache: npm
+      - run: npm ci --no-fund --no-audit
+      - run: npm run verify
+      - run: npm audit --omit=dev --audit-level=high
+      - name: Verify repeatable package bytes
+        run: |
+          cp dist/SHA256SUMS "$RUNNER_TEMP/first-checksums"
+          node scripts/package.cjs
+          diff -u "$RUNNER_TEMP/first-checksums" dist/SHA256SUMS
+          (cd dist && sha256sum -c SHA256SUMS)
+          for archive in dist/*.zip; do unzip -t "$archive"; done
+      - name: Scan history and release files for credentials
+        env:
+          GITLEAKS_VERSION: '8.30.1'
+          GITLEAKS_SHA256: '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
+        run: |
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o "$RUNNER_TEMP/gitleaks.tar.gz"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git . --log-opts=--all --config .gitleaks.toml --redact --no-banner
+          "$RUNNER_TEMP/gitleaks" dir . --config .gitleaks.toml --redact --no-banner
+          mkdir "$RUNNER_TEMP/plugin-package"
+          unzip -q dist/*.zip -d "$RUNNER_TEMP/plugin-package"
+          "$RUNNER_TEMP/gitleaks" dir "$RUNNER_TEMP/plugin-package" --config .gitleaks.toml --redact --no-banner
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: xinian5216/komari-stable
+          ref: 0f489c93a71f93756aead3b7bb82b8a6de2f0a3e
+          path: komari-host
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: komari-host/go.sum
+      - name: Verify real Komari Stable Goja runtime
+        env:
+          CGO_ENABLED: '0'
+          KOMARI_PLUGIN_TEST_ROOT: ${{ github.workspace }}
+        run: |
+          cp test/goja_compat_test.go komari-host/pkg/jsruntime/stable_plugin_compat_test.go
+          cd komari-host
+          go test ./pkg/jsruntime -run '^TestMaintainedPlugin$' -count=1 -timeout=120s
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verified-plugin
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS
+            dist/catalog-entry.json
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: verified-plugin
+          path: dist
+      - name: Publish only a verified new stable tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test "$RELEASE_TAG" = "v$(node -p 'require("./package.json").version')"
+          git merge-base --is-ancestor HEAD origin/stable
+          (cd dist && sha256sum -c SHA256SUMS)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to overwrite it.' >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" dist/*.zip dist/SHA256SUMS dist/catalog-entry.json --verify-tag --title "$RELEASE_TAG" --notes-file CHANGELOG.md

@@ -23,3 +23,6 @@ coverage/
 # OS and editor files
 .DS_Store
 Thumbs.db
+
+# Local verification reports
+*.audit.json

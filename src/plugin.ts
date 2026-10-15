@@ -89,6 +89,43 @@ type RouteFailure = Error & {
 };
 
 let verifierAvailable = false;
+const maxPendingChallenges = 128;
+const requestWindowMS = 60_000;
+const requestsPerSource = 20;
+const requestsGlobally = 120;
+const maxRequestSources = 512;
+const requestSources = new Map<string, { started: number; count: number }>();
+let globalRequestWindow = { started: 0, count: 0 };
+const authenticationPaths = new Set([
+  "/api/komari-passkey/authentication/options",
+  "/api/komari-passkey/authentication/verify",
+  "/api/komari-passkey/registration/options",
+  "/api/komari-passkey/registration/verify",
+]);
+
+// The global budget remains effective even if a proxy supplies untrusted IPs.
+// These synchronous updates run on the plugin's single JavaScript event loop.
+function acceptAuthenticationRequest(req: PluginRequest): boolean {
+  const now = Date.now();
+  if (now - globalRequestWindow.started >= requestWindowMS) {
+    globalRequestWindow = { started: now, count: 0 };
+  }
+  if (globalRequestWindow.count >= requestsGlobally) return false;
+  for (const [key, entry] of requestSources) {
+    if (now - entry.started >= requestWindowMS) requestSources.delete(key);
+  }
+  const source = stringValue(req.context.remote_ip).slice(0, 256) || "unknown";
+  let entry = requestSources.get(source);
+  if (!entry) {
+    if (requestSources.size >= maxRequestSources) return false;
+    entry = { started: now, count: 0 };
+    requestSources.set(source, entry);
+  }
+  if (entry.count >= requestsPerSource) return false;
+  entry.count += 1;
+  globalRequestWindow.count += 1;
+  return true;
+}
 const passkeyStorePath = path.join(__storageDir__, "passkeys.json");
 const passkeyStoreTemporaryPath = path.join(
   __storageDir__,
@@ -474,6 +511,9 @@ async function saveChallenge(
 ) {
   const store = readPasskeyStore();
   cleanExpiredChallenges(store, nowISOString());
+  if (store.challenges.length >= maxPendingChallenges) {
+    throw routeFailure(429, "challenge_capacity_reached");
+  }
   debugLog("challenge:save", {
     purpose,
     challengeIDLength: challengeID.length,
@@ -640,6 +680,16 @@ function route(
   handler: (req: PluginRequest, res: PluginResponse) => Promise<RouteResult>,
 ) {
   return async (req: PluginRequest, res: PluginResponse) => {
+    const pathname = req.url.split("?")[0];
+    if (
+      req.method === "POST" && authenticationPaths.has(pathname) &&
+      !acceptAuthenticationRequest(req)
+    ) {
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Retry-After", "60");
+      jsonResponse(res, { ok: false, code: "rate_limited" }, 429);
+      return;
+    }
     debugLog("route:start", {
       method: req.method,
       url: req.url,
@@ -669,6 +719,7 @@ function route(
         stack: error instanceof Error ? error.stack : undefined,
       });
       res.setHeader("Cache-Control", "no-store");
+      if (status === 429) res.setHeader("Retry-After", "60");
       jsonResponse(res, { ok: false, code }, status);
     }
   };

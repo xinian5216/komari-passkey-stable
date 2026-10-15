@@ -1,44 +1,17 @@
-# Komari Passkey
+# Komari Passkey Stable
 
-Komari Passkey is a plugin-only WebAuthn login implementation. It does not
-modify Komari itself and does not use HTTP hooks.
+Independent maintenance fork of [Akizon77/komari-passkey](https://github.com/Akizon77/komari-passkey), retaining Akizon77 attribution and the v0.1.13 baseline. See UPSTREAM.md and UPSTREAM_LICENSE_STATUS.md.
 
-It stores credentials and short-lived challenges in two plugin tables in the
-main Komari database. After a verified assertion it creates a native row in
-the existing sessions table and sends the normal session_token cookie.
+Requires Komari >=1.4.3, including the 1.5.0 Stable line. The verifier is bundled and runs using Komari's Node-compatible Goja modules; no external Node process is started by this version. Credentials and short-lived challenges are stored in data/plugin-data/komari-passkey/passkeys.json. Verified logins use the native sessions table.
 
-## Requirements
+This maintenance version bounds authentication requests and pending challenges. It preserves existing credentials, configuration keys, routes, secure defaults and native sessions. It does not change password or TOTP login.
 
-- Komari `>=1.4.3`.
-- A Komari release exposing admin:dbQuery and admin:dbExec to plugins.
-- Node.js 20 or newer on the Komari host. The plugin starts a loopback-only
-  SimpleWebAuthn verifier process.
-- HTTPS with a configured RP ID and allowed origin. HTTP is intentionally
-  disabled by default and can be enabled explicitly for local development.
+## Install or migrate
 
-## Setup
+Back up the database and plugin data directory. Use the maintained market source or install the verified ZIP. Preserve plugin short komari-passkey and the existing data directory; do not uninstall first. Configure the correct RP ID and HTTPS origins. Keep password login available while verifying the new installation.
 
-After installing the plugin, open the Komari **Account** page and add a
-Passkey. The Passkey login button appears after at least one credential has
-been registered.
+## Build and check
 
-## Security Defaults
+Use Node.js 22 for development: npm ci, then npm run verify. ZIP and SHA256SUMS are generated under dist/. Runtime does not require this development Node installation.
 
-- Required user verification and resident credentials.
-- Platform authenticator registration.
-- Synced multi-device credentials are rejected.
-- 120-second challenge lifetime.
-- 12-hour HttpOnly, Secure, SameSite=Strict session cookie.
-
-All of these policies are declared in the plugin configuration and can be
-adjusted there before registering a passkey.
-
-## Development
-
-    npm install
-    npm run typecheck
-    npm test
-    npm run pack
-
-The development server and API key are stored in komari.local.json, which is
-ignored by Git. Do not commit that file.
+The source URL is https://raw.githubusercontent.com/xinian5216/komari-stable/stable/plugin-market/v1.json . Only add it after its catalog is published. See SECURITY.md for limits, permissions, private-site compatibility and rollback.

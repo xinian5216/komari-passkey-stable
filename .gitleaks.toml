@@ -1,0 +1,26 @@
+title = "Plugin Stable secret scan"
+[extend]
+useDefault = true
+[[allowlists]]
+description = "Dependencies and uncommitted packages; extracted release files are scanned separately"
+paths = ['''(^|/)node_modules/''', '''(^|/)dist/''', '''(^|/)komari-host/''']
+
+[[allowlists]]
+description = "Reviewed ASN.1 class-name assignments in the bundled Peculiar libraries, not key material"
+regexTarget = "match"
+regexes = ['''var RecipientEncryptedKeys = RecipientEncryptedKeys_1 = class RecipientEncryptedKeys''', '''exports2.PKCS8ShroudedKeyBag = PKCS8ShroudedKeyBag''']
+[[allowlists]]
+description = "Exact public ES256 signature fixture for example.test; no private key is stored"
+regexTarget = "secret"
+regexes = ['''^MEYCIQCEzgJywsEd4x0FddewI1Rz53Cdbc_RY8ogjo0b-VUE5AIhAMYUoRzGZaxaXbMLFZ0jC06DcW1kaXWuttwX9-yJDtO0$''']
+
+[[allowlists]]
+description = 'Exact public authenticator-data fixture for example.test, not a credential'
+regexTarget = 'secret'
+regexes = ['''^myY_vLWJhTE3sz3cr6W8xUA0ZOrU2nZtD4GTSL-NRywFAAAAAQ$''']
+
+
+[[allowlists]]
+description = 'Exact public ASN.1 class identifier, not key material'
+regexTarget = 'secret'
+regexes = ['''^RecipientEncryptedKeys_1$''']
