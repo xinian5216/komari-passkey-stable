@@ -33,6 +33,8 @@
       verificationFailed: "Passkey verification failed.",
       syncedCredentialsNotAllowed: "This passkey is synced by its provider. Enable synced passkeys in the plugin security policy to use it.",
       authenticationRequired: "Your session has expired.",
+      storeUnavailable: "Passkey data cannot be read. Keep the existing files and restore a verified backup, or use another sign-in method.",
+      rateLimited: "Too many passkey requests. Please wait a minute and try again.",
     },
     "zh-CN": {
       passkey: "通行密钥",
@@ -60,6 +62,8 @@
       verificationFailed: "通行密钥验证失败。",
       syncedCredentialsNotAllowed: "此通行密钥由提供方同步。请在插件安全策略中开启“允许同步通行密钥”后重试。",
       authenticationRequired: "登录会话已过期。",
+      storeUnavailable: "无法读取通行密钥数据。请保留现有文件，恢复已验证的备份或使用其他登录方式。",
+      rateLimited: "通行密钥请求过于频繁，请等待一分钟后重试。",
     },
   };
 
@@ -130,6 +134,9 @@
       verification_failed: "verificationFailed",
       synced_credential_not_allowed: "syncedCredentialsNotAllowed",
       authentication_required: "authenticationRequired",
+      store_unavailable: "storeUnavailable",
+      rate_limited: "rateLimited",
+      challenge_capacity_reached: "rateLimited",
       service_unavailable: "unavailable",
     };
     return keys[code] ? t(keys[code]) : t("operationFailed");

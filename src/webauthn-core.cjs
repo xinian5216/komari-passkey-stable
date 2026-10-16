@@ -19,7 +19,13 @@ if (process.versions.node === "0.0.0-goja") {
 
 const { createHash, randomBytes, verify } = require("node:crypto");
 
+let debugLogging = false;
+function setDebugLogging(enabled) {
+  debugLogging = enabled === true;
+}
+
 function debugLog(event, details) {
+  if (!debugLogging) return;
   if (details === undefined) {
     console.log("[komari-passkey][core]", event);
     return;
@@ -419,10 +425,10 @@ async function dispatch(pathname, body) {
     console.error("[komari-passkey][core] dispatch failed:", {
       pathname,
       message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: debugLogging && error instanceof Error ? error.stack : undefined,
     });
     throw error;
   }
 }
 
-module.exports = { dispatch };
+module.exports = { dispatch, setDebugLogging };

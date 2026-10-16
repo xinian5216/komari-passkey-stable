@@ -29,7 +29,7 @@ jobs:
           cache: npm
       - run: npm ci --no-fund --no-audit
       - run: npm run verify
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=high
       - name: Verify repeatable package bytes
         run: |
           cp dist/SHA256SUMS "$RUNNER_TEMP/first-checksums"
@@ -104,4 +104,5 @@ jobs:
             echo 'Release already exists; refusing to overwrite it.' >&2
             exit 1
           fi
-          gh release create "$RELEASE_TAG" dist/*.zip dist/SHA256SUMS dist/catalog-entry.json --verify-tag --title "$RELEASE_TAG" --notes-file CHANGELOG.md
+          gh release create "$RELEASE_TAG" dist/*.zip dist/SHA256SUMS dist/catalog-entry.json --verify-tag --draft --title "$RELEASE_TAG" --notes-file CHANGELOG.md
+          gh release edit "$RELEASE_TAG" --draft=false
