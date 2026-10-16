@@ -11,7 +11,7 @@
     "en": "Passkey sign-in for Komari. After installation, open the Account page to add and enable a Passkey. Requires Komari >=1.4.3."
   },
   "author": "Akizon77",
-  "version": "0.1.14-stable.1",
+  "version": "0.1.15-stable.1",
   "entry": "script.js",
   "permissions": {
     "node": true,
@@ -25,6 +25,19 @@
   "configuration": {
     "type": "managed",
     "data": [
+      {
+        "key": "debug_logging",
+        "name": {
+          "zh-CN": "调试日志",
+          "en": "Debug logging"
+        },
+        "type": "switch",
+        "default": false,
+        "help": {
+          "zh-CN": "默认关闭。仅排查问题时临时开启，完成后关闭并妥善处理日志。",
+          "en": "Off by default. Enable temporarily for troubleshooting, then disable and handle logs privately."
+        }
+      },
       {
         "key": "relying_party",
         "name": {

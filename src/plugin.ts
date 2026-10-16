@@ -17,6 +17,7 @@ const { URL } = require("node:url") as { URL: any };
 const webauthn = require(
   path.join(__dirname, "runtime", "webauthn-core.cjs"),
 ) as {
+  setDebugLogging: (enabled: boolean) => void;
   dispatch: (
     pathname: string,
     payload: Record<string, unknown>,
@@ -89,6 +90,7 @@ type RouteFailure = Error & {
 };
 
 let verifierAvailable = false;
+let debugLogging = false;
 const maxPendingChallenges = 128;
 const requestWindowMS = 60_000;
 const requestsPerSource = 20;
@@ -140,6 +142,7 @@ function routeFailure(status: number, code: string): RouteFailure {
 }
 
 function debugLog(event: string, details?: unknown) {
+  if (!debugLogging) return;
   if (details === undefined) {
     console.log("[komari-passkey]", event);
     return;
@@ -224,6 +227,8 @@ async function securityConfig(
   allowQueryOrigin = false,
 ): Promise<SecurityConfig> {
   const data = await server.getConfig<Record<string, unknown>>();
+  debugLogging = data.debug_logging === true;
+  webauthn.setDebugLogging(debugLogging);
   debugLog("securityConfig:raw", {
     keys: Object.keys(data),
     allowQueryOrigin,
@@ -331,7 +336,7 @@ async function callVerifier(
     console.error("[komari-passkey] WebAuthn verification failed:", {
       pathname,
       message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: debugLogging && error instanceof Error ? error.stack : undefined,
     });
     throw routeFailure(400, "verification_failed");
   }
@@ -420,14 +425,43 @@ function emptyPasskeyStore(): PasskeyStore {
   };
 }
 
+function isStoredDate(value: unknown): boolean {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+function validPasskeyStore(value: unknown): value is PasskeyStore {
+  const store = objectValue(value);
+  if (store.version !== 1 || !Array.isArray(store.credentials) || !Array.isArray(store.challenges)) return false;
+  const nonempty = (value: unknown) => typeof value === "string" && value.length > 0;
+  return store.credentials.every((value: unknown) => {
+    const credential = objectValue(value);
+    return nonempty(credential.id) && nonempty(credential.userUUID) &&
+      nonempty(credential.publicKey) && typeof credential.name === "string" &&
+      Number.isSafeInteger(credential.counter) && Number(credential.counter) >= 0 &&
+      Array.isArray(credential.transports) && credential.transports.every((item: unknown) => typeof item === "string") &&
+      typeof credential.deviceType === "string" && typeof credential.backedUp === "boolean" &&
+      isStoredDate(credential.createdAt) &&
+      (credential.lastUsedAt === null || isStoredDate(credential.lastUsedAt));
+  }) && store.challenges.every((value: unknown) => {
+    const challenge = objectValue(value);
+    return nonempty(challenge.id) && nonempty(challenge.challenge) && nonempty(challenge.userUUID) &&
+      (challenge.purpose === "registration" || challenge.purpose === "authentication") &&
+      isStoredDate(challenge.expiresAt);
+  });
+}
+
 function readPasskeyStore(): PasskeyStore {
   if (!fs.existsSync(passkeyStorePath)) {
     debugLog("store:read:empty", { exists: false });
     return emptyPasskeyStore();
   }
-  const store = JSON.parse(
-    stringValue(fs.readFileSync(passkeyStorePath, "utf8")),
-  ) as PasskeyStore;
+  let store: unknown;
+  try {
+    store = JSON.parse(stringValue(fs.readFileSync(passkeyStorePath, "utf8")));
+  } catch {
+    throw routeFailure(503, "store_unavailable");
+  }
+  if (!validPasskeyStore(store)) throw routeFailure(503, "store_unavailable");
   debugLog("store:read", {
     exists: true,
     credentialCount: store.credentials.length,
@@ -586,8 +620,8 @@ function jsonBody(req: PluginRequest): Record<string, unknown> {
     return body;
   } catch (error) {
     console.error("[komari-passkey] jsonBody failed:", {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      message: debugLogging && error instanceof Error ? error.message : "invalid_request",
+      stack: debugLogging && error instanceof Error ? error.stack : undefined,
     });
     throw routeFailure(400, "invalid_request");
   }
@@ -716,7 +750,7 @@ function route(
         status,
         code,
         message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
+        stack: debugLogging && error instanceof Error ? error.stack : undefined,
       });
       res.setHeader("Cache-Control", "no-store");
       if (status === 429) res.setHeader("Retry-After", "60");
@@ -1010,6 +1044,13 @@ function registerRoutes() {
 
 definePlugin({
   async load() {
+    try {
+      const data = await server.getConfig<Record<string, unknown>>();
+      debugLogging = data.debug_logging === true;
+    } catch {
+      debugLogging = false;
+    }
+    webauthn.setDebugLogging(debugLogging);
     debugLog("plugin:load:start");
     registerRoutes();
     server.injectHTML(injectedHead, injectedBody);
